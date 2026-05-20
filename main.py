@@ -6,11 +6,13 @@ from metrics_logger import MetricsLogger
 from utils import timestamp_iso
 
 def main():
+    print("Iniciando Cliente DASH - Entrega 1...")
     
     # Inicialização dos Módulos
     logger = MetricsLogger("docs/dados_entrega1.csv")
     buffer = BufferManager()
 
+    print("Baixando manifesto...")
     manifesto = baixar_manifesto(MANIFEST_URL)
     
     abr = RateBasedABR(manifesto)
@@ -23,18 +25,23 @@ def main():
 
     # Loop Principal do Vídeo
     for segment_id in range(1, NUM_SEGMENTS + 1):
+        print(f"\n--- Processando Segmento {segment_id}/{NUM_SEGMENTS} ---")
         
         # O ABR olha para a banda anterior e devolve a Qualidade escolhida e a URL
         qualidade_escolhida, url_segmento, bitrate_nominal = abr.escolher_qualidade(ultima_vazao_kbps)
+        print(f"Decisão ABR -> Qualidade: {qualidade_escolhida} ({bitrate_nominal} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps")
 
         # Retorna um dicionário com vazão, tempo de download e jitter
         dados_rede = baixar_segmento(url_segmento)
+        print(f"Rede -> Vazão Medida: {dados_rede['vazao_kbps']:.2f} kbps | Tempo: {dados_rede['download_time_s']:.2f}s | Jitter: {dados_rede['jitter_network_ms']:.2f} ms")
         
         # Calcula se travou ou se rodou liso
         dados_buffer = buffer.atualizar_buffer(
             dados_rede["download_time_s"], 
             SEGMENT_DURATION
         )
+        estado_buffer = "ESTÁVEL" if dados_buffer["buffer_can_play"] else "BUFFER CHEIO"
+        print(f"Buffer -> Nível Atual: {dados_buffer['buffer_level_s']:.2f}s | Status: {estado_buffer}")
 
         jitter_atual = dados_rede["jitter_network_ms"]
         # Atualiza a média móvel exponencial
@@ -63,6 +70,7 @@ def main():
         
         ultima_vazao_kbps = dados_rede["vazao_kbps"]
 
+    print("\nDownload concluído! Gerando gráficos de desempenho...")
     # Geração dos Gráficos
     logger.plotar_grafico()
 
