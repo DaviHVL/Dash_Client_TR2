@@ -21,7 +21,7 @@ def baixar_segmento(url):
     - jitter (ms)
     """
     
-    t_inicio = time.time()
+    t_inicio = time.perf_counter()
     
     response = requests.get(url, stream=True)
     response.raise_for_status()
@@ -36,7 +36,7 @@ def baixar_segmento(url):
         if not chunk:
             continue
         
-        agora = time.time()
+        agora = time.perf_counter()
         
         total_bytes += len(chunk)
         
@@ -47,7 +47,7 @@ def baixar_segmento(url):
         
         ultimo_tempo = agora
     
-    t_fim = time.time()
+    t_fim = time.perf_counter()
     
     # Tempo total
     tempo_total = t_fim - t_inicio

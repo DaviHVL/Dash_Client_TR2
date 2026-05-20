@@ -1,10 +1,16 @@
 import csv
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
 
 class MetricsLogger:
     def __init__(self, arquivo):
         self.arquivo = arquivo
+
+        pasta = os.path.dirname(self.arquivo)
+        
+        if pasta and not os.path.exists(pasta):
+            os.makedirs(pasta)
         
         self.cabecalho = [
             "segment", "timestamp", "server_id", "quality", "bitrate_kbps",
@@ -75,7 +81,6 @@ class MetricsLogger:
         plt.legend(loc="upper left")
         
         # Salva a imagem na mesma pasta e a exibe na tela
-        nome_imagem = "grafico_entrega1.png"
+        nome_imagem = self.arquivo.replace(".csv", ".png")
         plt.savefig(nome_imagem, dpi=300, bbox_inches="tight")
-        print(f"\nGráfico salvo com sucesso como '{nome_imagem}'")
         plt.show()

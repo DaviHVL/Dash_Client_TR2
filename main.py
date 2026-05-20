@@ -8,7 +8,7 @@ from utils import timestamp_iso
 def main():
     
     # Inicialização dos Módulos
-    logger = MetricsLogger("dados_entrega1.csv")
+    logger = MetricsLogger("docs/dados_entrega1.csv")
     buffer = BufferManager()
 
     manifesto = baixar_manifesto(MANIFEST_URL)
@@ -17,6 +17,9 @@ def main():
     
     # Variável para guardar a banda medida no loop anterior
     ultima_vazao_kbps = 0.0 
+
+    jitter_ewma_ms = 0.0  # Nova variável para guardar o histórico
+    alfa_ewma = 0.125     # Peso padrão para cálculos de rede
 
     # Loop Principal do Vídeo
     for segment_id in range(1, NUM_SEGMENTS + 1):
@@ -32,6 +35,10 @@ def main():
             dados_rede["download_time_s"], 
             SEGMENT_DURATION
         )
+
+        jitter_atual = dados_rede["jitter_network_ms"]
+        # Atualiza a média móvel exponencial
+        jitter_ewma_ms = (alfa_ewma * jitter_atual) + ((1 - alfa_ewma) * jitter_ewma_ms)
         
         # Monta o dicionário
         metricas = {
@@ -42,8 +49,8 @@ def main():
             "bitrate_kbps": bitrate_nominal,
             "vazao_kbps": dados_rede["vazao_kbps"],
             "download_time_s": dados_rede["download_time_s"],
-            "jitter_network_ms": dados_rede["jitter_network_ms"],
-            "jitter_ewma_ms": 0, 
+            "jitter_network_ms": jitter_atual,
+            "jitter_ewma_ms": jitter_ewma_ms, 
             "buffer_level_s": dados_buffer["buffer_level_s"],
             "buffer_can_play": dados_buffer["buffer_can_play"],
             "rebuffer_event": dados_buffer["rebuffer_event"],
