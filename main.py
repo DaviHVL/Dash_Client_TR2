@@ -1,9 +1,10 @@
-from config import MANIFEST_URL, NUM_SEGMENTS, SEGMENT_DURATION
+from config import MANIFEST_URL, NUM_SEGMENTS, SEGMENT_DURATION, MAX_BUFFER_SIZE
 from network import baixar_manifesto, baixar_segmento
 from buffer_manager import BufferManager
 from abr import RateBasedABR
 from metrics_logger import MetricsLogger
 from utils import timestamp_iso
+import time
 
 def main():
     print("Iniciando Cliente DASH - Entrega 1...")
@@ -26,6 +27,12 @@ def main():
     # Loop Principal do Vídeo
     for segment_id in range(1, NUM_SEGMENTS + 1):
         print(f"\n--- Processando Segmento {segment_id}/{NUM_SEGMENTS} ---")
+
+        if buffer.buffer_level_s + SEGMENT_DURATION > MAX_BUFFER_SIZE:
+            tempo_espera = (buffer.buffer_level_s + SEGMENT_DURATION) - MAX_BUFFER_SIZE
+            print(f"CONTROLE DE CAPACIDADE: Buffer atual ({buffer.buffer_level_s:.2f}s) próximo do limite. Aguardando {tempo_espera:.2f}s...")
+            time.sleep(tempo_espera)
+            buffer.consumir_buffer(tempo_espera)
         
         # O ABR olha para a banda anterior e devolve a Qualidade escolhida e a URL
         qualidade_escolhida, url_segmento, bitrate_nominal = abr.escolher_qualidade(ultima_vazao_kbps)
@@ -40,8 +47,17 @@ def main():
             dados_rede["download_time_s"], 
             SEGMENT_DURATION
         )
-        estado_buffer = "ESTÁVEL" if dados_buffer["buffer_can_play"] else "BUFFER CHEIO"
+        if dados_buffer["buffer_can_play"] or segment_id == 1:
+            estado_buffer = "ESTÁVEL" 
+        else: 
+            estado_buffer ="BUFFER CHEIO"
         print(f"Buffer -> Nível Atual: {dados_buffer['buffer_level_s']:.2f}s | Status: {estado_buffer}")
+
+        if dados_buffer["rebuffer_event"] == 1 and segment_id != 1:
+            print(f"TRAVAMENTO DETECTADO: O vídeo parou por {dados_buffer['stall_duration_s']:.2f}s! Estimativa de vazão zerada para próxima iteração.")
+            ultima_vazao_kbps = 0.0
+        else:
+            ultima_vazao_kbps = dados_rede["vazao_kbps"]
 
         jitter_atual = dados_rede["jitter_network_ms"]
         # Atualiza a média móvel exponencial
