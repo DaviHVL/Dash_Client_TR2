@@ -30,3 +30,9 @@ class BufferManager:
             "rebuffer_event": rebuffer_event,
             "stall_duration_s": stall_duration_s,
         }
+    
+    def consumir_buffer(self, tempo_s):
+        # Deduz o tempo do buffer enquanto o sistema pausa (throttling).
+        self.buffer_level_s -= tempo_s
+        if self.buffer_level_s < 0:
+            self.buffer_level_s = 0.0
