@@ -51,7 +51,7 @@ class RateBasedABR:
         representacao_min = self.representations_ordenadas[-1]
         return (
             representacao_min.get("quality", ""),
-            representacao.get("url_path", ""),
+            representacao_min.get("url_path", ""),
             representacao_min.get("bitrate_kbps", 0)
         )
 
