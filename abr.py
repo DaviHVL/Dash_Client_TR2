@@ -37,7 +37,7 @@ class RateBasedABR:
             representacao_min = self.representations_ordenadas[-1]
             return (
                 representacao_min.get("quality", ""),
-                self._montar_url(representacao_min.get("url_path", "")),
+                representacao.get("url_path", ""),
                 representacao_min.get("bitrate_kbps", 0)
             )
 
@@ -48,22 +48,14 @@ class RateBasedABR:
             if bitrate_kbps <= banda_estimada_kbps:
                 return (
                     representacao.get("quality", ""),
-                    self._montar_url(representacao.get("url_path", "")),
+                    representacao.get("url_path", ""),
                     bitrate_kbps
                 )
 
         representacao_min = self.representations_ordenadas[-1]
         return (
             representacao_min.get("quality", ""),
-            self._montar_url(representacao_min.get("url_path", "")),
+            representacao.get("url_path", ""),
             representacao_min.get("bitrate_kbps", 0)
         )
 
-    def _montar_url(self, url_path):
-        if not url_path:
-            return ""
-        if self.server_base_url.endswith("/") and url_path.startswith("/"):
-            return self.server_base_url[:-1] + url_path
-        if not self.server_base_url.endswith("/") and not url_path.startswith("/"):
-            return self.server_base_url + "/" + url_path
-        return self.server_base_url + url_path
