@@ -54,61 +54,71 @@ def baixar_manifesto(url):
     return response.json()
 
 
-def baixar_segmento(url):
-    """
-    Baixa segmento em chunks e mede:
-    - vazão (kbps)
-    - tempo total (s)
-    - jitter (ms)
-    """
+def baixar_segmento(url_path, server_manager):
     
-    t_inicio = time.perf_counter()
-    
-    response = requests.get(url, stream=True)
-    response.raise_for_status()
-    
-    total_bytes = 0
-    tempos_chunks = []
-    
-    ultimo_tempo = None
-    
-    # Baixar em pedaços
-    for chunk in response.iter_content(chunk_size=4096):
-        if not chunk:
+    tentativa = 0
+    max_tentativas = len(server_manager.servers)
+
+    while tentativa < max_tentativas:
+
+        # Verifica saúde antes de baixar
+        if not server_manager.health_check():
+            if not server_manager.failover():
+                raise Exception("Todos os servidores indisponíveis")
+            tentativa += 1
             continue
-        
-        agora = time.perf_counter()
-        
-        total_bytes += len(chunk)
-        
-        # Marca tempo de chegada de cada chunk
-        if ultimo_tempo is not None:
-            delta = agora - ultimo_tempo
-            tempos_chunks.append(delta)
-        
-        ultimo_tempo = agora
-    
-    t_fim = time.perf_counter()
-    
-    # Tempo total
-    tempo_total = t_fim - t_inicio
-    
-    # Vazão
-    vazao_kbps = calcular_vazao(total_bytes, tempo_total)
-    
-    # Cálculo de jitter
-    jitter_ms = 0.0
-    if len(tempos_chunks) > 1:
-        variacoes = []
-        for i in range(1, len(tempos_chunks)):
-            variacao = abs(tempos_chunks[i] - tempos_chunks[i-1])
-            variacoes.append(variacao)
-        
-        if variacoes:
-            jitter_ms = (sum(variacoes) / len(variacoes)) * 1000  # para ms
-    
-    return {
-        "vazao_kbps": vazao_kbps,
-        "download_time_s": tempo_total,
-        "jitter_network_ms": jitter_ms
-    }
+
+        url = server_manager.montar_url(url_path)
+
+        try:
+            t_inicio = time.perf_counter()
+            
+            response = requests.get(url, stream=True, timeout=3)
+            response.raise_for_status()
+            
+            total_bytes = 0
+            tempos_chunks = []
+            ultimo_tempo = None
+
+            for chunk in response.iter_content(chunk_size=4096):
+                if not chunk:
+                    continue
+
+                agora = time.perf_counter()
+                total_bytes += len(chunk)
+
+                if ultimo_tempo is not None:
+                    tempos_chunks.append(agora - ultimo_tempo)
+
+                ultimo_tempo = agora
+
+            t_fim = time.perf_counter()
+
+            tempo_total = t_fim - t_inicio
+            vazao_kbps = calcular_vazao(total_bytes, tempo_total)
+
+            # jitter
+            jitter_ms = 0.0
+            if len(tempos_chunks) > 1:
+                variacoes = [
+                    abs(tempos_chunks[i] - tempos_chunks[i-1])
+                    for i in range(1, len(tempos_chunks))
+                ]
+                if variacoes:
+                    jitter_ms = (sum(variacoes) / len(variacoes)) * 1000
+
+            return {
+                "vazao_kbps": vazao_kbps,
+                "download_time_s": tempo_total,
+                "jitter_network_ms": jitter_ms,
+                "server_id": server_manager.get_current_server().get("id", "unknown"),
+                "failover_total": server_manager.failover_count
+            }
+
+        except Exception as e:
+            print(f"Erro ao baixar: {e}")
+            if not server_manager.failover():
+                raise Exception("Todos os servidores falharam durante download")
+            tentativa += 1
+
+    raise Exception("Falha geral no download")
