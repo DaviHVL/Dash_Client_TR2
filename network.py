@@ -3,6 +3,47 @@ import requests
 import time
 from utils import calcular_vazao
 
+class ServerManager:
+    def __init__(self, manifesto):
+        # Ordena servidores por prioridade (menor = melhor)
+        self.servers = sorted(
+            manifesto.get("servers", []),
+            key=lambda s: s.get("priority", 999)
+        )
+        
+        self.current_server_index = 0
+        self.failover_count = 0
+
+    def get_current_server(self):
+        return self.servers[self.current_server_index]
+
+    def montar_url(self, url_path):
+        base = self.get_current_server().get("url", "")
+        
+        if base.endswith("/") and url_path.startswith("/"):
+            return base[:-1] + url_path
+        if not base.endswith("/") and not url_path.startswith("/"):
+            return base + "/" + url_path
+        return base + url_path
+
+    def health_check(self, timeout=1):
+        server = self.get_current_server()
+        url = server.get("url", "") + "/health"
+        
+        try:
+            response = requests.get(url, timeout=timeout)
+            return response.status_code == 200
+        except:
+            return False
+
+    def failover(self):
+        if self.current_server_index < len(self.servers) - 1:
+            self.current_server_index += 1
+            self.failover_count += 1
+            print(f"FAILOVER: Mudando para servidor {self.get_current_server().get('id', 'unknown')}")
+            return True
+        return False
+
 
 def baixar_manifesto(url):
     """
