@@ -7,7 +7,6 @@ from utils import timestamp_iso
 from network import ServerManager
 import time
 
-server_manager = ServerManager(manifesto)
 
 def main():
     print("Iniciando Cliente DASH - Entrega 1...")
@@ -18,6 +17,7 @@ def main():
 
     print("Baixando manifesto...")
     manifesto = baixar_manifesto(MANIFEST_URL)
+    server_manager = ServerManager(manifesto)
     
     abr = RateBasedABR(manifesto)
     
