@@ -19,10 +19,6 @@ class RateBasedABR:
         for s in servers:
             if s.get("url"):
                 servers_validos.append(s)
-        self.server_base_url = ""
-        if servers_validos:
-            server_principal = min(servers_validos, key=lambda s: s.get("priority", 999))
-            self.server_base_url = server_principal.get("url", "")
 
     def escolher_qualidade(self, vazao_medida_kbps):
         
@@ -37,18 +33,18 @@ class RateBasedABR:
             representacao_min = self.representations_ordenadas[-1]
             return (
                 representacao_min.get("quality", ""),
-                representacao.get("url_path", ""),
+                representacao_min.get("url_path", ""),
                 representacao_min.get("bitrate_kbps", 0)
             )
 
         banda_estimada_kbps = vazao_medida_kbps * SAFETY_FACTOR
 
         for representacao in self.representations_ordenadas:
-            bitrate_kbps = representacao.get("bitrate_kbps", 0)
+            bitrate_kbps = representacao_min.get("bitrate_kbps", 0)
             if bitrate_kbps <= banda_estimada_kbps:
                 return (
-                    representacao.get("quality", ""),
-                    representacao.get("url_path", ""),
+                    representacao_min.get("quality", ""),
+                    representacao_min.get("url_path", ""),
                     bitrate_kbps
                 )
 
