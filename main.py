@@ -1,7 +1,7 @@
 from config import MANIFEST_URL, NUM_SEGMENTS, SEGMENT_DURATION, MAX_BUFFER_SIZE
 from network import baixar_manifesto, baixar_segmento
 from buffer_manager import BufferManager
-from abr import RateBasedABR
+from abr import HybridABR
 from metrics_logger import MetricsLogger
 from utils import timestamp_iso
 import time
@@ -16,7 +16,7 @@ def main():
     print("Baixando manifesto...")
     manifesto = baixar_manifesto(MANIFEST_URL)
     
-    abr = RateBasedABR(manifesto)
+    abr = HybridABR(manifesto)
     
     # Variável para guardar a banda medida no loop anterior
     ultima_vazao_kbps = 0.0 
@@ -35,7 +35,7 @@ def main():
             buffer.consumir_buffer(tempo_espera)
         
         # O ABR olha para a banda anterior e devolve a Qualidade escolhida e a URL
-        qualidade_escolhida, url_segmento, bitrate_nominal = abr.escolher_qualidade(ultima_vazao_kbps)
+        qualidade_escolhida, url_segmento, bitrate_nominal = abr.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
         print(f"Decisão ABR -> Qualidade: {qualidade_escolhida} ({bitrate_nominal} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps")
 
         # Retorna um dicionário com vazão, tempo de download e jitter
