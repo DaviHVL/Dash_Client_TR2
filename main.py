@@ -4,7 +4,10 @@ from buffer_manager import BufferManager
 from abr import RateBasedABR
 from metrics_logger import MetricsLogger
 from utils import timestamp_iso
+from network import ServerManager
 import time
+
+server_manager = ServerManager(manifesto)
 
 def main():
     print("Iniciando Cliente DASH - Entrega 1...")
@@ -39,7 +42,7 @@ def main():
         print(f"Decisão ABR -> Qualidade: {qualidade_escolhida} ({bitrate_nominal} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps")
 
         # Retorna um dicionário com vazão, tempo de download e jitter
-        dados_rede = baixar_segmento(url_segmento)
+        dados_rede = baixar_segmento(url_segmento, server_manager)
         print(f"Rede -> Vazão Medida: {dados_rede['vazao_kbps']:.2f} kbps | Tempo: {dados_rede['download_time_s']:.2f}s | Jitter: {dados_rede['jitter_network_ms']:.2f} ms")
         
         # Calcula se travou ou se rodou liso
@@ -67,7 +70,7 @@ def main():
         metricas = {
             "segment": segment_id,
             "timestamp": timestamp_iso(),
-            "server_id": "A", 
+            "server_id": dados_rede["server_id"],
             "quality": qualidade_escolhida,
             "bitrate_kbps": bitrate_nominal,
             "vazao_kbps": dados_rede["vazao_kbps"],
@@ -78,7 +81,7 @@ def main():
             "buffer_can_play": dados_buffer["buffer_can_play"],
             "rebuffer_event": dados_buffer["rebuffer_event"],
             "stall_duration_s": dados_buffer["stall_duration_s"],
-            "failover_total": 0 
+            "failover_total": dados_rede["failover_total"]
         }
         
         # Log no CSV
