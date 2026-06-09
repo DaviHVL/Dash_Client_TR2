@@ -1,31 +1,33 @@
+import time
 from config import MANIFEST_URL, NUM_SEGMENTS, SEGMENT_DURATION, MAX_BUFFER_SIZE
-from network import baixar_manifesto, baixar_segmento
+from network import baixar_manifesto, baixar_segmento, ServerManager
 from buffer_manager import BufferManager
-from abr import RateBasedABR
+from abr import RateBasedABR, HybridABR
 from metrics_logger import MetricsLogger
 from utils import timestamp_iso
-from network import ServerManager
-import time
-
+from comparar_politicas import plotar_comparacao  
 
 def main():
-    print("Iniciando Cliente DASH - Entrega 1...")
+    print("Iniciando Cliente DASH - Entrega 2 (Política Híbrida)...")
     
-    # Inicialização dos Módulos
-    logger = MetricsLogger("docs/dados_entrega1.csv")
+    # Inicializa os dois loggers (Entrega 1 e 2)
+    logger_p1 = MetricsLogger("docs/dados_baseline.csv", "1")
+    logger_p2 = MetricsLogger("docs/dados_politica2.csv", "2")
+    
     buffer = BufferManager()
 
     print("Baixando manifesto...")
     manifesto = baixar_manifesto(MANIFEST_URL)
     server_manager = ServerManager(manifesto)
-    
-    abr = RateBasedABR(manifesto)
+
+    # Instancia as duas políticas simultaneamente
+    abr_baseline = RateBasedABR(manifesto)
+    abr_hibrida = HybridABR(manifesto)
     
     # Variável para guardar a banda medida no loop anterior
     ultima_vazao_kbps = 0.0 
-
-    jitter_ewma_ms = 0.0  # Nova variável para guardar o histórico
-    alfa_ewma = 0.125     # Peso padrão para cálculos de rede
+    jitter_ewma_ms = 0.0  
+    alfa_ewma = 0.125     
 
     # Loop Principal do Vídeo
     for segment_id in range(1, NUM_SEGMENTS + 1):
@@ -37,42 +39,39 @@ def main():
             time.sleep(tempo_espera)
             buffer.consumir_buffer(tempo_espera)
         
-        # O ABR olha para a banda anterior e devolve a Qualidade escolhida e a URL
-        qualidade_escolhida, url_segmento, bitrate_nominal = abr.escolher_qualidade(ultima_vazao_kbps)
-        print(f"Decisão ABR -> Qualidade: {qualidade_escolhida} ({bitrate_nominal} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps")
+        # Pede a decisão de AMBAS as políticas baseada na mesma medição de banda
+        qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
+        qualidade_p1, _, bitrate_p1 = abr_baseline.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
 
-        # Retorna um dicionário com vazão, tempo de download e jitter
-        dados_rede = baixar_segmento(url_segmento, server_manager)
+        print(f"Decisão ABR -> Qualidade: {qualidade_p2} ({bitrate_p2} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps")
+
+        # O download REAL é feito usando a URL que a Política 2 (Híbrida) escolheu
+        try:
+            dados_rede = baixar_segmento(url_segmento, server_manager)
+        except Exception as e:
+            print(f"ERRO CRÍTICO FATAL: {e}")
+            break
+
         print(f"Rede -> Vazão Medida: {dados_rede['vazao_kbps']:.2f} kbps | Tempo: {dados_rede['download_time_s']:.2f}s | Jitter: {dados_rede['jitter_network_ms']:.2f} ms")
         
-        # Calcula se travou ou se rodou liso
-        dados_buffer = buffer.atualizar_buffer(
-            dados_rede["download_time_s"], 
-            SEGMENT_DURATION
-        )
-        if dados_buffer["buffer_can_play"] or segment_id == 1:
-            estado_buffer = "ESTÁVEL" 
-        else: 
-            estado_buffer ="BUFFER CHEIO"
+        # Atualiza métricas de Buffer e Jitter
+        dados_buffer = buffer.atualizar_buffer(dados_rede["download_time_s"], SEGMENT_DURATION)
+        estado_buffer = "ESTÁVEL" if (dados_buffer["buffer_can_play"] or segment_id == 1) else "BUFFER CHEIO"
         print(f"Buffer -> Nível Atual: {dados_buffer['buffer_level_s']:.2f}s | Status: {estado_buffer}")
 
         if dados_buffer["rebuffer_event"] == 1 and segment_id != 1:
-            print(f"TRAVAMENTO DETECTADO: O vídeo parou por {dados_buffer['stall_duration_s']:.2f}s! Estimativa de vazão zerada para próxima iteração.")
+            print(f"TRAVAMENTO DETECTADO: O vídeo parou por {dados_buffer['stall_duration_s']:.2f}s! Vazão zerada para próxima iteração.")
             ultima_vazao_kbps = 0.0
         else:
             ultima_vazao_kbps = dados_rede["vazao_kbps"]
 
         jitter_atual = dados_rede["jitter_network_ms"]
-        # Atualiza a média móvel exponencial
         jitter_ewma_ms = (alfa_ewma * jitter_atual) + ((1 - alfa_ewma) * jitter_ewma_ms)
         
-        # Monta o dicionário
-        metricas = {
+        metricas_base = {
             "segment": segment_id,
             "timestamp": timestamp_iso(),
             "server_id": dados_rede["server_id"],
-            "quality": qualidade_escolhida,
-            "bitrate_kbps": bitrate_nominal,
             "vazao_kbps": dados_rede["vazao_kbps"],
             "download_time_s": dados_rede["download_time_s"],
             "jitter_network_ms": jitter_atual,
@@ -84,14 +83,21 @@ def main():
             "failover_total": dados_rede["failover_total"]
         }
         
-        # Log no CSV
-        logger.log_segment(metricas)
-        
-        ultima_vazao_kbps = dados_rede["vazao_kbps"]
+        # Loga as decisões da Política 2 no seu respectivo CSV
+        metricas_p2 = metricas_base.copy()
+        metricas_p2["quality"] = qualidade_p2
+        metricas_p2["bitrate_kbps"] = bitrate_p2
+        logger_p2.log_segment(metricas_p2)
 
-    print("\nDownload concluído! Gerando gráficos de desempenho...")
-    # Geração dos Gráficos
-    logger.plotar_grafico()
+        # Loga as decisões da Política 1 
+        metricas_p1 = metricas_base.copy()
+        metricas_p1["quality"] = qualidade_p1
+        metricas_p1["bitrate_kbps"] = bitrate_p1
+        logger_p1.log_segment(metricas_p1)
+
+    print("\nDownload concluído! Gerando o gráfico comparativo...")
+
+    plotar_comparacao("docs/dados_baseline.csv", "docs/dados_politica2.csv")
 
 if __name__ == "__main__":
     main()
