@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 import os
 
 class MetricsLogger:
-    def __init__(self, arquivo):
+    def __init__(self, arquivo, entrega=""):
         self.arquivo = arquivo
+        self.entrega = entrega 
 
         pasta = os.path.dirname(self.arquivo)
         
@@ -19,7 +20,6 @@ class MetricsLogger:
             "buffer_can_play", "rebuffer_event", "stall_duration_s", "failover_total"
         ]
         
-        # Cria o arquivo e escreve o cabeçalho
         with open(self.arquivo, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(self.cabecalho)
@@ -68,7 +68,11 @@ class MetricsLogger:
                  label="Qualidade Selecionada (kbps)", marker='s', linestyle='--', color='#ff7f0e', where='mid')
 
         # Títulos, legendas e grade
-        plt.title("Desempenho ABR: Vazão da Rede vs Qualidade Selecionada")
+        titulo_base = "Desempenho ABR: Vazão da Rede vs Qualidade Selecionada"
+        if self.entrega:
+            plt.title(f"{titulo_base} - Política {self.entrega}")
+        else:
+            plt.title(titulo_base)
         plt.xlabel("Número do Segmento")
         plt.ylabel("Taxa de Transferência (kbps)")
         
