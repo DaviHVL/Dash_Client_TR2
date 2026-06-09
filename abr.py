@@ -1,5 +1,58 @@
 from config import SAFETY_FACTOR
 
+class RateBasedABR:
+    def __init__(self, manifesto):
+        # Extrai as representações do manifesto no formato real
+        self.representations = manifesto.get("representations", [])
+
+        # Ordena as representações por bitrate em ordem DECRESCENTE
+        self.representations_ordenadas = sorted(
+            self.representations,
+            key=lambda r: r.get("bitrate_kbps", 0),
+            reverse=True
+        )
+
+        # Escolhe o servidor de maior prioridade para construir URLs completas
+        servers = manifesto.get("servers", [])
+        servers_validos = []
+        for s in servers:
+            if s.get("url"):
+                servers_validos.append(s)
+
+    def escolher_qualidade(self, vazao_medida_kbps, buffer_segundos=0):
+        
+        if not self.representations_ordenadas:
+            return ("unknown", "", 0)
+
+        # Cold Start: se vazão é 0, usa a menor representação
+        if vazao_medida_kbps == 0:
+            representacao_min = self.representations_ordenadas[-1]
+            return (
+                representacao_min.get("quality", ""),
+                representacao_min.get("url_path", ""),
+                representacao_min.get("bitrate_kbps", 0)
+            )
+
+        banda_estimada_kbps = vazao_medida_kbps * SAFETY_FACTOR
+
+        for representacao in self.representations_ordenadas:
+            # CORREÇÃO: estava representacao_min.get(), o correto é representacao.get()
+            bitrate_kbps = representacao.get("bitrate_kbps", 0)
+            if bitrate_kbps <= banda_estimada_kbps:
+                return (
+                    representacao.get("quality", ""),
+                    representacao.get("url_path", ""),
+                    bitrate_kbps
+                )
+
+        representacao_min = self.representations_ordenadas[-1]
+        return (
+            representacao_min.get("quality", ""),
+            representacao_min.get("url_path", ""),
+            representacao_min.get("bitrate_kbps", 0)
+        )
+
+
 class HybridABR:
     def __init__(self, manifesto):
         self.representations = manifesto.get("representations", [])
@@ -9,6 +62,13 @@ class HybridABR:
             key=lambda r: r.get("bitrate_kbps", 0),
             reverse=True
         )
+
+        # Escolhe o servidor de maior prioridade para construir URLs completas
+        servers = manifesto.get("servers", [])
+        servers_validos = []
+        for s in servers:
+            if s.get("url"):
+                servers_validos.append(s)
 
         # Estado do algoritmo
         self.contador_subida = 0
@@ -34,9 +94,9 @@ class HybridABR:
         
         # MODULADOR DE CONFIANÇA (BUFFER)
         if buffer_segundos < 4:
-            multiplicador = 0.5
+            multiplicador = 0.7
         elif buffer_segundos <= 10:
-            multiplicador = 0.8
+            multiplicador = 0.9
         else:
             multiplicador = 1.0
 
@@ -68,8 +128,11 @@ class HybridABR:
         else:
             self.contador_subida += 1
 
-            if self.contador_subida >= 3:
-                self.representacao_atual = representacao_alvo
+            if self.contador_subida >= 2:
+                indice_atual = self.representations_ordenadas.index(self.representacao_atual)
+                
+                if indice_atual > 0:
+                    self.representacao_atual = self.representations_ordenadas[indice_atual - 1]
                 self.contador_subida = 0
 
         return (
