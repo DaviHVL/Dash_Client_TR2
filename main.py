@@ -1,5 +1,5 @@
 import time
-from config import MANIFEST_URL, NUM_SEGMENTS, SEGMENT_DURATION, MAX_BUFFER_SIZE
+from config import MANIFEST_URL, NUM_SEGMENTS, SEGMENT_DURATION, BUFFER_TARGET_S 
 from network import baixar_manifesto, baixar_segmento, ServerManager
 from buffer_manager import BufferManager
 from abr import RateBasedABR, HybridABR
@@ -32,12 +32,6 @@ def main():
     # Loop Principal do Vídeo
     for segment_id in range(1, NUM_SEGMENTS + 1):
         print(f"\n--- Processando Segmento {segment_id}/{NUM_SEGMENTS} ---")
-
-        if buffer.buffer_level_s + SEGMENT_DURATION > MAX_BUFFER_SIZE:
-            tempo_espera = (buffer.buffer_level_s + SEGMENT_DURATION) - MAX_BUFFER_SIZE
-            print(f"CONTROLE DE CAPACIDADE: Buffer atual ({buffer.buffer_level_s:.2f}s) próximo do limite. Aguardando {tempo_espera:.2f}s...")
-            time.sleep(tempo_espera)
-            buffer.consumir_buffer(tempo_espera)
         
         # Pede a decisão de AMBAS as políticas baseada na mesma medição de banda
         qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
@@ -57,6 +51,18 @@ def main():
         # Atualiza métricas de Buffer e Jitter
         dados_buffer = buffer.atualizar_buffer(dados_rede["download_time_s"], SEGMENT_DURATION)
         estado_buffer = "ESTÁVEL" if (dados_buffer["buffer_can_play"] or segment_id == 1) else "BUFFER CHEIO"
+
+        if dados_buffer['buffer_level_s'] >= BUFFER_TARGET_S:
+            wait = max(0, SEGMENT_DURATION - dados_rede["download_time_s"])
+            if wait > 0:
+                print(f"Player -> Buffer alvo atingido. Simulando playback (aguardando {wait:.2f}s)...")
+                time.sleep(wait)
+                buffer.consumir_buffer(wait)
+
+                dados_buffer['buffer_level_s'] = buffer.buffer_level_s
+        else:
+            print("Player -> Fase de enchimento: Baixando próximo segmento sem pausas.")
+
         print(f"Buffer -> Nível Atual: {dados_buffer['buffer_level_s']:.2f}s | Status: {estado_buffer}")
 
         if dados_buffer["rebuffer_event"] == 1 and segment_id != 1:

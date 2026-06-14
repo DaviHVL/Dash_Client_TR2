@@ -93,10 +93,18 @@ class HybridABR:
 
         
         # MODULADOR DE CONFIANÇA (BUFFER)
+        # O multiplicador faz o papel do fator de segurança
         if buffer_segundos < 4:
-            multiplicador = 0.7
+            rep_min = self.representations_ordenadas[-1]
+            self.representacao_atual = rep_min
+            self.contador_subida = 0 
+            return (
+                rep_min.get("quality", ""),
+                rep_min.get("url_path", ""),
+                rep_min.get("bitrate_kbps", 0)
+            )
         elif buffer_segundos <= 10:
-            multiplicador = 0.9
+            multiplicador = 0.92
         else:
             multiplicador = 1.0
 
