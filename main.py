@@ -14,18 +14,22 @@ def main():
     logger_p1 = MetricsLogger("docs/dados_baseline.csv", "1")
     logger_p2 = MetricsLogger("docs/dados_politica2.csv", "2")
     
+    # Inicialização do Buffer
     buffer = BufferManager()
 
+    # Requisição e Armazenamento do Manifesto
     print("Baixando manifesto...")
     manifesto = baixar_manifesto(MANIFEST_URL)
     server_manager = ServerManager(manifesto)
 
-    # Instancia as duas políticas simultaneamente
+    # Instância das duas políticas de escolha de qualidade
     abr_baseline = RateBasedABR(manifesto)
     abr_hibrida = HybridABR(manifesto)
     
     # Variável para guardar a banda medida no loop anterior
     ultima_vazao_kbps = 0.0 
+
+    # Variáveis relativas ao jitter
     jitter_ewma_ms = 0.0  
     alfa_ewma = 0.125     
 
@@ -36,6 +40,7 @@ def main():
     for segment_id in range(1, NUM_SEGMENTS + 1):
         print(f"\n--- Processando Segmento {segment_id}/{NUM_SEGMENTS} ---")
 
+        # Cálculo da Vazão Média 
         if len(historico_vazao) > 0:
             media_vazao = sum(historico_vazao) / len(historico_vazao)
         else:
@@ -45,6 +50,7 @@ def main():
         qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(media_vazao, buffer.buffer_level_s)
         qualidade_p1, _, bitrate_p1 = abr_baseline.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
 
+        #Exibição das informações relativas ao ABR
         print(f"Decisão ABR -> Qualidade: {qualidade_p2} ({bitrate_p2} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps | Vazão Média: {media_vazao:.2f} kbps")
 
         # O download REAL é feito usando a URL que a Política 2 (Híbrida) escolheu
@@ -54,12 +60,14 @@ def main():
             print(f"ERRO CRÍTICO FATAL: {e}")
             break
 
+        # Exibição das informações relativas à rede
         print(f"Rede -> Vazão Medida: {dados_rede['vazao_kbps']:.2f} kbps | Tempo: {dados_rede['download_time_s']:.2f}s | Jitter: {dados_rede['jitter_network_ms']:.2f} ms")
         
         # Atualiza métricas de Buffer e Jitter
         dados_buffer = buffer.atualizar_buffer(dados_rede["download_time_s"], SEGMENT_DURATION)
         estado_buffer = "ESTÁVEL" if (dados_buffer["buffer_can_play"] or segment_id == 1) else "BUFFER CHEIO"
 
+        # Mantém o nível do buffer próximo à BUFFER_TARGET_S por meio de playback
         if dados_buffer['buffer_level_s'] >= BUFFER_TARGET_S:
             wait = max(0, SEGMENT_DURATION - dados_rede["download_time_s"])
             if wait > 0:
@@ -71,8 +79,10 @@ def main():
         else:
             print("Player -> Fase de enchimento: Baixando próximo segmento sem pausas.")
 
+        # Exibição das informações relativas ao Buffer
         print(f"Buffer -> Nível Atual: {dados_buffer['buffer_level_s']:.2f}s | Status: {estado_buffer}")
 
+        # Tratamento em caso de Rebufferização e manutenção da janela de vazão até 3
         if dados_buffer["rebuffer_event"] == 1 and segment_id != 1:
             print(f"TRAVAMENTO DETECTADO: O vídeo parou por {dados_buffer['stall_duration_s']:.2f}s! Vazão zerada para próxima iteração.")
             ultima_vazao_kbps = 0.0
@@ -84,9 +94,11 @@ def main():
             if len(historico_vazao) > 3:
                 historico_vazao.pop(0)
 
+        # Cálculos relativos ao Jitter
         jitter_atual = dados_rede["jitter_network_ms"]
         jitter_ewma_ms = (alfa_ewma * jitter_atual) + ((1 - alfa_ewma) * jitter_ewma_ms)
-        
+
+        # Métricas a serem registradas no .CSV     
         metricas_base = {
             "segment": segment_id,
             "timestamp": timestamp_iso(),
