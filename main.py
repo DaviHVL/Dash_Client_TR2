@@ -29,15 +29,23 @@ def main():
     jitter_ewma_ms = 0.0  
     alfa_ewma = 0.125     
 
+    # Histórico da Vazão
+    historico_vazao = []
+
     # Loop Principal do Vídeo
     for segment_id in range(1, NUM_SEGMENTS + 1):
         print(f"\n--- Processando Segmento {segment_id}/{NUM_SEGMENTS} ---")
+
+        if len(historico_vazao) > 0:
+            media_vazao = sum(historico_vazao) / len(historico_vazao)
+        else:
+            media_vazao = 0.0
         
         # Pede a decisão de AMBAS as políticas baseada na mesma medição de banda
-        qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
+        qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(media_vazao, buffer.buffer_level_s)
         qualidade_p1, _, bitrate_p1 = abr_baseline.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
 
-        print(f"Decisão ABR -> Qualidade: {qualidade_p2} ({bitrate_p2} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps")
+        print(f"Decisão ABR -> Qualidade: {qualidade_p2} ({bitrate_p2} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps | Vazão Média: {media_vazao:.2f} kbps")
 
         # O download REAL é feito usando a URL que a Política 2 (Híbrida) escolheu
         try:
@@ -68,8 +76,13 @@ def main():
         if dados_buffer["rebuffer_event"] == 1 and segment_id != 1:
             print(f"TRAVAMENTO DETECTADO: O vídeo parou por {dados_buffer['stall_duration_s']:.2f}s! Vazão zerada para próxima iteração.")
             ultima_vazao_kbps = 0.0
+            historico_vazao = [0.0]
         else:
             ultima_vazao_kbps = dados_rede["vazao_kbps"]
+            historico_vazao.append(ultima_vazao_kbps)
+
+            if len(historico_vazao) > 3:
+                historico_vazao.pop(0)
 
         jitter_atual = dados_rede["jitter_network_ms"]
         jitter_ewma_ms = (alfa_ewma * jitter_atual) + ((1 - alfa_ewma) * jitter_ewma_ms)
