@@ -36,11 +36,16 @@ class ServerManager:
         except:
             return False
 
-    def failover(self):
+    def failover(self, tempo_perdido_s=None):
         if self.current_server_index < len(self.servers) - 1:
             self.current_server_index += 1
             self.failover_count += 1
-            print(f"FAILOVER: Mudando para servidor {self.get_current_server().get('id', 'unknown')}")
+            
+            if tempo_perdido_s is not None:
+                print(f"FAILOVER: Mudando para servidor {self.get_current_server().get('id', 'unknown')} (Tempo perdido: {tempo_perdido_s:.2f}s)")
+            else:
+                print(f"FAILOVER: Mudando para servidor {self.get_current_server().get('id', 'unknown')}")
+                
             return True
         return False
 
@@ -55,24 +60,27 @@ def baixar_manifesto(url):
 
 
 def baixar_segmento(url_path, server_manager):
-    
     tentativa = 0
     max_tentativas = len(server_manager.servers)
 
+    t_inicio_absoluto = time.perf_counter()
+
     while tentativa < max_tentativas:
 
-        # Verifica saúde antes de baixar
         if not server_manager.health_check():
-            if not server_manager.failover():
-                raise Exception("Todos os servidores indisponíveis")
+            tempo_perdido = time.perf_counter() - t_inicio_absoluto
+            
+            if not server_manager.failover(tempo_perdido): 
+                raise Exception("Todos os servidores indisponíveis no health check")
+            
             tentativa += 1
-            continue
+            continue  
 
         url = server_manager.montar_url(url_path)
 
         try:
-            t_inicio = time.perf_counter()
-            
+            t_inicio_vazao = time.perf_counter()
+
             response = requests.get(url, stream=True, timeout=3)
             response.raise_for_status()
             
@@ -90,14 +98,15 @@ def baixar_segmento(url_path, server_manager):
                 if ultimo_tempo is not None:
                     tempos_chunks.append(agora - ultimo_tempo)
 
-                ultimo_tempo = agora
+                ultimo_tempo = ago = agora
 
             t_fim = time.perf_counter()
 
-            tempo_total = t_fim - t_inicio
-            vazao_kbps = calcular_vazao(total_bytes, tempo_total)
+            tempo_total_rodada = t_fim - t_inicio_absoluto
+            tempo_liquido_download = t_fim - t_inicio_vazao
+            
+            vazao_kbps = calcular_vazao(total_bytes, tempo_liquido_download)
 
-            # jitter
             jitter_ms = 0.0
             if len(tempos_chunks) > 1:
                 variacoes = [
@@ -109,16 +118,19 @@ def baixar_segmento(url_path, server_manager):
 
             return {
                 "vazao_kbps": vazao_kbps,
-                "download_time_s": tempo_total,
+                "download_time_s": tempo_total_rodada, 
                 "jitter_network_ms": jitter_ms,
                 "server_id": server_manager.get_current_server().get("id", "unknown"),
                 "failover_total": server_manager.failover_count
             }
 
         except Exception as e:
-            print(f"Erro ao baixar: {e}")
-            if not server_manager.failover():
-                raise Exception("Todos os servidores falharam durante download")
+            tempo_perdido_no_download = time.perf_counter() - t_inicio_absoluto
+            print(f"Erro ao baixar segmento: {e}")
+            
+            if not server_manager.failover(tempo_perdido_no_download):
+                raise Exception("Todos os servidores falharam durante o download do segmento")
+            
             tentativa += 1
 
-    raise Exception("Falha geral no download")
+    raise Exception("Falha geral no download: limite de tentativas esgotado")
