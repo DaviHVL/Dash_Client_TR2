@@ -120,16 +120,16 @@ class HybridABR:
                 break
 
         # HISTERES E (ANTI-OSCILAÇÃO)
-        bitrate_atual = self.representacao_atual.get("bitrate_kbps", 0)
+        bitrate_anterior = self.representacao_atual.get("bitrate_kbps", 0)
         bitrate_alvo = representacao_alvo.get("bitrate_kbps", 0)
 
         # Queda imediata (segurança)
-        if bitrate_alvo < bitrate_atual:
+        if bitrate_alvo < bitrate_anterior:
             self.contador_subida = 0
             self.representacao_atual = representacao_alvo
 
         # Mantém
-        elif bitrate_alvo == bitrate_atual:
+        elif bitrate_alvo == bitrate_anterior:
             self.contador_subida = 0
 
         # Subida controlada
@@ -137,10 +137,10 @@ class HybridABR:
             self.contador_subida += 1
 
             if self.contador_subida >= 2:
-                indice_atual = self.representations_ordenadas.index(self.representacao_atual)
+                indice_anterior = self.representations_ordenadas.index(self.representacao_atual)
                 
-                if indice_atual > 0:
-                    self.representacao_atual = self.representations_ordenadas[indice_atual - 1]
+                if indice_anterior > 0:
+                    self.representacao_atual = self.representations_ordenadas[indice_anterior - 1]
                 self.contador_subida = 0
 
         return (
