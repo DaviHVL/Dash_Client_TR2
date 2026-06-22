@@ -14,8 +14,9 @@ def main():
     logger_p1 = MetricsLogger("docs/dados_baseline.csv", "1")
     logger_p2 = MetricsLogger("docs/dados_politica2.csv", "2")
     
-    # Inicialização do Buffer
-    buffer = BufferManager()
+    # Inicialização independente dos buffers para garantir a fidelidade dos logs
+    buffer_p1 = BufferManager()
+    buffer_p2 = BufferManager()
 
     # Requisição e Armazenamento do Manifesto
     print("Baixando manifesto...")
@@ -27,7 +28,7 @@ def main():
     abr_hibrida = HybridABR(manifesto)
     
     # Variável para guardar a banda medida no loop anterior
-    ultima_vazao_kbps = 0.0 
+    ultima_vazao_kbps = 0.0
 
     # Variáveis relativas ao jitter
     jitter_ewma_ms = 0.0  
@@ -46,14 +47,14 @@ def main():
         else:
             media_vazao = 0.0
         
-        # Pede a decisão de AMBAS as políticas baseada na mesma medição de banda
-        qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(media_vazao, buffer.buffer_level_s)
-        qualidade_p1, _, bitrate_p1 = abr_baseline.escolher_qualidade(ultima_vazao_kbps, buffer.buffer_level_s)
+        # Pede a decisão de AMBAS as políticas baseada em seus respectivos estados de buffer
+        qualidade_p2, url_segmento, bitrate_p2 = abr_hibrida.escolher_qualidade(media_vazao, buffer_p2.buffer_level_s)
+        qualidade_p1, _, bitrate_p1 = abr_baseline.escolher_qualidade(ultima_vazao_kbps, buffer_p1.buffer_level_s)
 
-        #Exibição das informações relativas ao ABR
-        print(f"Decisão ABR -> Qualidade: {qualidade_p2} ({bitrate_p2} kbps) | Banda Anterior: {ultima_vazao_kbps:.2f} kbps | Vazão Média: {media_vazao:.2f} kbps")
+        # Exibição das informações relativas ao ABR
+        print(f"Decisão ABR -> P2 (Híbrida): {qualidade_p2} ({bitrate_p2} kbps) | P1 (Baseline): {qualidade_p1} ({bitrate_p1} kbps)")
 
-        # O download REAL é feito usando a URL que a Política 2 (Híbrida) escolheu
+        # O download REAL da sessão é feito usando a URL que a Política 2 (Híbrida) escolheu
         try:
             dados_rede = baixar_segmento(url_segmento, server_manager)
         except Exception as e:
@@ -61,30 +62,34 @@ def main():
             break
 
         # Exibição das informações relativas à rede
-        print(f"Rede -> Vazão Medida: {dados_rede['vazao_kbps']:.2f} kbps | Tempo: {dados_rede['download_time_s']:.2f}s | Jitter: {dados_rede['jitter_network_ms']:.2f} ms")
+        print(f"Rede -> Vazão Medida: {dados_rede['vazao_kbps']:.2f} kbps | Tempo: {dados_rede['download_time_s']:.2f}s | Jitter: {dados_rede['jitter_network_ms']:.2f} ms | Vazão Média: {media_vazao:.2f} kbps")
         
-        # Atualiza métricas de Buffer e Jitter
-        dados_buffer = buffer.atualizar_buffer(dados_rede["download_time_s"], SEGMENT_DURATION)
-        estado_buffer = "ESTÁVEL" if (dados_buffer["buffer_can_play"] or segment_id == 1) else "BUFFER CHEIO"
+        # Atualiza métricas de ambos os buffers de forma isolada após o download
+        dados_buffer_p2 = buffer_p2.atualizar_buffer(dados_rede["download_time_s"], SEGMENT_DURATION)
+        dados_buffer_p1 = buffer_p1.atualizar_buffer(dados_rede["download_time_s"], SEGMENT_DURATION)
+        
+        estado_buffer_p2 = "ESTÁVEL" if (dados_buffer_p2["buffer_can_play"] or segment_id == 1) else "BUFFER CHEIO OU REBUFFERING"
+        estado_buffer_p1 = "ESTÁVEL" if (dados_buffer_p1["buffer_can_play"] or segment_id == 1) else "BUFFER CHEIO"
 
-        # Mantém o nível do buffer próximo à BUFFER_TARGET_S por meio de playback
-        if dados_buffer['buffer_level_s'] >= BUFFER_TARGET_S:
+        # Mecanismo de Throttling (Aplica-se estritamente ao player controlado da Política 2)
+        if dados_buffer_p2['buffer_level_s'] >= BUFFER_TARGET_S:
             wait = max(0, SEGMENT_DURATION - dados_rede["download_time_s"])
             if wait > 0:
-                print(f"Player -> Buffer alvo atingido. Simulando playback (aguardando {wait:.2f}s)...")
+                print(f"Player -> Buffer alvo da Política 2 atingido. Simulando playback (aguardando {wait:.2f}s)...")
                 time.sleep(wait)
-                buffer.consumir_buffer(wait)
-
-                dados_buffer['buffer_level_s'] = buffer.buffer_level_s
+                
+                # Apenas a política controlada drena o buffer com base no tempo de espera do player real
+                buffer_p2.consumir_buffer(wait)
+                dados_buffer_p2['buffer_level_s'] = buffer_p2.buffer_level_s
         else:
-            print("Player -> Fase de enchimento: Baixando próximo segmento sem pausas.")
+            print("Player -> Política 2 em fase de enchimento: Baixando próximo segmento sem pausas.")
 
-        # Exibição das informações relativas ao Buffer
-        print(f"Buffer -> Nível Atual: {dados_buffer['buffer_level_s']:.2f}s | Status: {estado_buffer}")
+        # Exibição das informações relativas ao Buffer de ambos os contextos
+        print(f"Buffer -> P2 (Híbrida) - Nível Atual: {dados_buffer_p2['buffer_level_s']:.2f}s e Status: {estado_buffer_p2} | P1 (Baseline) - Nível Atual: {dados_buffer_p1['buffer_level_s']:.2f}s e Status: {estado_buffer_p1}")
 
-        # Tratamento em caso de Rebufferização e manutenção da janela de vazão até 3
-        if dados_buffer["rebuffer_event"] == 1 and segment_id != 1:
-            print(f"TRAVAMENTO DETECTADO: O vídeo parou por {dados_buffer['stall_duration_s']:.2f}s! Vazão zerada para próxima iteração.")
+        # Tratamento em caso de Rebufferização (Baseado na linha de execução real do player - P2)
+        if dados_buffer_p2["rebuffer_event"] == 1 and segment_id != 1:
+            print(f"TRAVAMENTO DETECTADO NA EXECUÇÃO: O vídeo parou por {dados_buffer_p2['stall_duration_s']:.2f}s! Vazão zerada para próxima iteração.")
             ultima_vazao_kbps = 0.0
             historico_vazao = [0.0]
         else:
@@ -98,36 +103,45 @@ def main():
         jitter_atual = dados_rede["jitter_network_ms"]
         jitter_ewma_ms = (alfa_ewma * jitter_atual) + ((1 - alfa_ewma) * jitter_ewma_ms)
 
-        # Métricas a serem registradas no .CSV     
-        metricas_base = {
+        # Métricas a serem registradas no .CSV da Política 2 
+        metricas_p2 = {
             "segment": segment_id,
             "timestamp": timestamp_iso(),
             "server_id": dados_rede["server_id"],
+            "quality": qualidade_p2,       
+            "bitrate_kbps": bitrate_p2,
             "vazao_kbps": dados_rede["vazao_kbps"],
             "download_time_s": dados_rede["download_time_s"],
             "jitter_network_ms": jitter_atual,
             "jitter_ewma_ms": jitter_ewma_ms, 
-            "buffer_level_s": dados_buffer["buffer_level_s"],
-            "buffer_can_play": dados_buffer["buffer_can_play"],
-            "rebuffer_event": dados_buffer["rebuffer_event"],
-            "stall_duration_s": dados_buffer["stall_duration_s"],
+            "buffer_level_s": dados_buffer_p2["buffer_level_s"],
+            "buffer_can_play": dados_buffer_p2["buffer_can_play"],
+            "rebuffer_event": dados_buffer_p2["rebuffer_event"],
+            "stall_duration_s": dados_buffer_p2["stall_duration_s"],
             "failover_total": dados_rede["failover_total"]
         }
-        
-        # Loga as decisões da Política 2 no seu respectivo CSV
-        metricas_p2 = metricas_base.copy()
-        metricas_p2["quality"] = qualidade_p2
-        metricas_p2["bitrate_kbps"] = bitrate_p2
         logger_p2.log_segment(metricas_p2)
 
-        # Loga as decisões da Política 1 
-        metricas_p1 = metricas_base.copy()
-        metricas_p1["quality"] = qualidade_p1
-        metricas_p1["bitrate_kbps"] = bitrate_p1
+        # Métricas a serem registradas no .CSV da Política 1 (Alinhadas 100% ao Item 8.3)
+        metricas_p1 = {
+            "segment": segment_id,
+            "timestamp": timestamp_iso(),
+            "server_id": dados_rede["server_id"],
+            "quality": qualidade_p1,    
+            "bitrate_kbps": bitrate_p1,
+            "vazao_kbps": dados_rede["vazao_kbps"],
+            "download_time_s": dados_rede["download_time_s"],
+            "jitter_network_ms": jitter_atual,
+            "jitter_ewma_ms": jitter_ewma_ms, 
+            "buffer_level_s": dados_buffer_p1["buffer_level_s"],
+            "buffer_can_play": dados_buffer_p1["buffer_can_play"],
+            "rebuffer_event": dados_buffer_p1["rebuffer_event"],
+            "stall_duration_s": dados_buffer_p1["stall_duration_s"],
+            "failover_total": dados_rede["failover_total"]
+        }
         logger_p1.log_segment(metricas_p1)
 
-    print("\nDownload concluído! Gerando o gráfico comparativo...")
-
+    print("\nDownload concluído! Gerando os gráficos comparativos...")
     plotar_comparacao("docs/dados_baseline.csv", "docs/dados_politica2.csv")
 
 if __name__ == "__main__":
