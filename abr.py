@@ -148,3 +148,120 @@ class HybridABR:
             self.representacao_atual.get("url_path", ""),
             self.representacao_atual.get("bitrate_kbps", 0)
         )
+
+
+
+class AdaptiveHybridABR:
+    def __init__(self, manifesto):
+        self.representations = manifesto.get("representations", [])
+
+        self.representations_ordenadas = sorted(
+            self.representations,
+            key=lambda r: r.get("bitrate_kbps", 0),
+            reverse=True
+        )
+
+        # Escolhe o servidor de maior prioridade para construir URLs completas
+        servers = manifesto.get("servers", [])
+        servers_validos = []
+        for s in servers:
+            if s.get("url"):
+                servers_validos.append(s)
+
+        # Estado do algoritmo
+        self.contador_subida = 0
+        self.representacao_atual = None
+
+    def escolher_qualidade(self, vazao_media_kbps, buffer_segundos, jitter_ewma_ms):
+
+        # Não há representações disponíveis
+        if not self.representations_ordenadas:
+            return ("unknown", "", 0)
+
+        # COLD START
+        if self.representacao_atual is None:
+            rep = self.representations_ordenadas[-1]
+            self.representacao_atual = rep
+
+            return (
+                rep.get("quality", ""),
+                rep.get("url_path", ""),
+                rep.get("bitrate_kbps", 0)
+            )
+
+        # BUFFER
+        if buffer_segundos < 4:
+            rep_min = self.representations_ordenadas[-1]
+            self.representacao_atual = rep_min
+            self.contador_subida = 0 
+            return (
+                rep_min.get("quality", ""),
+                rep_min.get("url_path", ""),
+                rep_min.get("bitrate_kbps", 0)
+            )
+
+        elif buffer_segundos <= 10:
+            multiplicador_buffer = 0.92
+
+        else:
+            multiplicador_buffer = 1.0
+
+        # JITTER
+        # Quanto maior o jitter, mais conservadora a estimativa
+        k_jitter = 0.002
+
+        fator_jitter = max(
+            0.7,
+            1 - k_jitter * jitter_ewma_ms
+        )
+
+        # BANDA ESTIMADA
+        banda_estimada = (vazao_media_kbps * SAFETY_FACTOR * multiplicador_buffer * fator_jitter)
+
+        # REPRESENTAÇÃO ALVO
+        representacao_alvo = self.representations_ordenadas[-1]
+
+        for representacao in self.representations_ordenadas:
+            bitrate = representacao.get("bitrate_kbps", 0)
+
+            if bitrate <= banda_estimada:
+                representacao_alvo = representacao
+                break
+
+        bitrate_atual = self.representacao_atual.get("bitrate_kbps", 0)
+        bitrate_alvo = representacao_alvo.get("bitrate_kbps", 0)
+
+        # HISTERESE
+
+        # Queda imediata
+        if bitrate_alvo < bitrate_atual:
+            self.representacao_atual = representacao_alvo
+            self.contador_subida = 0
+
+        # Mantém
+        elif bitrate_alvo == bitrate_atual:
+            self.contador_subida = 0
+
+        # Subida gradual
+        else:
+            self.contador_subida += 1
+
+            # Sobe somente após duas decisões consecutivas
+            if self.contador_subida >= 2:
+
+                indice_atual = self.representations_ordenadas.index(
+                    self.representacao_atual
+                )
+
+                # Sobe um nível por vez
+                if indice_atual > 0:
+                    self.representacao_atual = \
+                        self.representations_ordenadas[indice_atual - 1]
+
+                self.contador_subida = 0
+
+        return (
+            self.representacao_atual.get("quality", ""),
+            self.representacao_atual.get("url_path", ""),
+            self.representacao_atual.get("bitrate_kbps", 0)
+        )
