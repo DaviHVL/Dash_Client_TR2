@@ -2,15 +2,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-def plotar_comparacao(csv_baseline, csv_politica2):
-    if not os.path.exists(csv_baseline) or not os.path.exists(csv_politica2):
-        print("ERRO: É preciso executar as duas políticas antes de gerar a comparação")
-        print(f"Verifique se {csv_baseline} e {csv_politica2} existem.")
+def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
+    if not os.path.exists(csv_baseline) or not os.path.exists(csv_politica2) or not os.path.exists(csv_politica3):
+        print("ERRO: É preciso executar as três políticas antes de gerar a comparação")
+        print(f"Verifique se {csv_baseline}, {csv_politica2} e {csv_politica3} existem.")
         return
 
     # Lê os dados gerados
     df_base = pd.read_csv(csv_baseline)
     df_p2 = pd.read_csv(csv_politica2)
+    df_p3 = pd.read_csv(csv_politica3)
 
     # Garante que o diretório "docs" existe antes de salvar
     os.makedirs("docs", exist_ok=True)
@@ -94,7 +95,52 @@ def plotar_comparacao(csv_baseline, csv_politica2):
     plt.show()
 
     # ==========================================================
-    # GRÁFICO 3: EVOLUÇÃO DO NÍVEL DO BUFFER COM REBUFFERING
+    # GRÁFICO 3: POLÍTICA 3 (HÍBRIDA-ADAPTATIVA)
+    # ==========================================================
+    plt.figure(figsize=(12, 6))
+
+    # Plota a Vazão da Rede
+    plt.plot(df_p3["segment"], df_p3["vazão_kbps"], 
+             label="Vazão Medida da Rede (kbps)", color='black', linestyle='--', marker='o', alpha=1)
+
+    # Plota o Bitrate da Política 3
+    plt.step(df_p3["segment"], df_p3["bitrate_kbps"], 
+             label="Política 3: Histerese + Buffer + Jitter", marker='s', linestyle='-', color="#1fb41f", where='mid', linewidth=2)
+
+    # Adiciona os rótulos com a QUALIDADE escolhida (abaixo do ponto para não sobrepor)
+    for i, row in df_p3.iterrows():
+        plt.annotate(row["quality"], (row["segment"], row["bitrate_kbps"]), 
+                     textcoords="offset points", xytext=(0,-12), ha='center', fontsize=8, color='#1fb41f')
+
+    plt.title("Desempenho ABR - Política 3 (Híbrida - Adaptativa)")
+    plt.xlabel("Número do Segmento")
+    plt.ylabel("Taxa de Transferência (kbps)")
+    plt.xticks(df_p3["segment"]) 
+
+    # Detecta e indica visualmente onde ocorreu o Failover (P3)
+    teve_failover = False
+    if "failover_total" in df_p3.columns:
+        for i in range(1, len(df_p3)):
+            if df_p3.loc[i, "failover_total"] > df_p3.loc[i-1, "failover_total"]:
+                segmento_failover = df_p3.loc[i, "segment"]
+                
+                label_f = "Queda de Servidor (Failover)" if not teve_failover else ""
+                plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label=label_f)
+                
+                plt.annotate("Failover!", (segmento_failover, plt.ylim()[1] * 0.95), 
+                             textcoords="offset points", xytext=(5,0), ha='left', color='red', fontweight='bold')
+                teve_failover = True
+
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.legend(loc="upper left")
+
+    caminho_imagem_p3 = "docs/grafico_politica3.png"
+    plt.savefig(caminho_imagem_p3, dpi=300, bbox_inches="tight")
+    print(f"Gráfico da Política 3 salvo em '{caminho_imagem_p3}'")
+    plt.show()
+
+    # ==========================================================
+    # GRÁFICO 4: EVOLUÇÃO DO NÍVEL DO BUFFER COM REBUFFERING
     # ==========================================================
     plt.figure(figsize=(12, 5))
     
@@ -107,7 +153,9 @@ def plotar_comparacao(csv_baseline, csv_politica2):
     plt.plot(df_base["segment"], df_base["buffer_level_s"], 
              label="Política 1: Baseline", color='#d62728', linestyle='-', marker='o', alpha=0.8)
     plt.plot(df_p2["segment"], df_p2["buffer_level_s"], 
-             label="Política 2: Híbrida", color='#1f77b4', linestyle='-', marker='s', alpha=0.8)
+             label="Política 2: Híbrida", color='#1f77b4', linestyle='-', marker='^', alpha=0.8)
+    plt.plot(df_p3["segment"], df_p3["buffer_level_s"], 
+             label="Política 3: Híbrida-Adaptativo", color='#1fb41f', linestyle='-', marker='s', alpha=0.8)
 
     # Identificação e marcação proativa de eventos de Rebuffering (Mapeamento de Stalls)
     df_base_rebuf = df_base[df_base["rebuffer_event"] == 1]
@@ -125,6 +173,15 @@ def plotar_comparacao(csv_baseline, csv_politica2):
         for _, row in df_p2_rebuf.iterrows():
             plt.annotate(f"Stall! {row['stall_duration_s']:.1f}s", (row["segment"], row["buffer_level_s"]),
                          textcoords="offset points", xytext=(0, 10), ha='center', color='darkred', fontweight='bold', fontsize=9)
+            
+
+    df_p3_rebuf = df_p3[df_p3["rebuffer_event"] == 1]
+    if not df_p3_rebuf.empty:
+        plt.scatter(df_p3_rebuf["segment"], df_p3_rebuf["buffer_level_s"], 
+                    color='darkred', marker='X', s=150, zorder=5, label="Rebuffering (P3)")
+        for _, row in df_p3_rebuf.iterrows():
+            plt.annotate(f"Stall! {row['stall_duration_s']:.1f}s", (row["segment"], row["buffer_level_s"]),
+                         textcoords="offset points", xytext=(0, 10), ha='center', color='black', fontweight='bold', fontsize=9)
 
     # Linha vertical unificada para registrar o impacto do Failover no amortecimento
     if segmento_failover is not None:
@@ -135,6 +192,8 @@ def plotar_comparacao(csv_baseline, csv_politica2):
     plt.ylabel("Nível do Buffer ($s$)")
     plt.xticks(df_p2["segment"])
     plt.ylim(0, max(max(df_base["buffer_level_s"]), max(df_p2["buffer_level_s"]), 30) + 5)
+    plt.xticks(df_p3["segment"])
+    plt.ylim(0, max(max(df_base["buffer_level_s"]), max(df_p3["buffer_level_s"]), 30) + 5)
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.legend(loc="upper left")
     plt.savefig("docs/grafico_buffer.png", dpi=300, bbox_inches="tight")
@@ -142,24 +201,24 @@ def plotar_comparacao(csv_baseline, csv_politica2):
     print("Gráfico do Buffer salvo com sucesso em 'docs/grafico_buffer.png'")
 
     # ==========================================================
-    # GRÁFICO 4: EVOLUÇÃO DO JITTER (INSTANTÂNEO VS EWMA)
+    # GRÁFICO 5: EVOLUÇÃO DO JITTER (INSTANTÂNEO VS EWMA)
     # ==========================================================
     plt.figure(figsize=(12, 5))
     
-    for i in range(len(df_p2)):
-        seg = df_p2.loc[i, "segment"]
-        srv = str(df_p2.loc[i, "server_id"]).strip()
+    for i in range(len(df_p3)):
+        seg = df_p3.loc[i, "segment"]
+        srv = str(df_p3.loc[i, "server_id"]).strip()
         
         cor_fundo = '#fff7ec' if 'A' in srv or 'A' == srv else '#f2f0f7'
         plt.axvspan(seg - 0.5, seg + 0.5, color=cor_fundo, alpha=0.7, zorder=1)
 
-    df_srv_a = df_p2[df_p2["server_id"].astype(str).str.contains('A', na=False)]
-    df_srv_b = df_p2[~df_p2["server_id"].astype(str).str.contains('A', na=False)]
+    df_srv_a = df_p3[df_p3["server_id"].astype(str).str.contains('A', na=False)]
+    df_srv_b = df_p3[~df_p3["server_id"].astype(str).str.contains('A', na=False)]
 
-    plt.plot(df_p2["segment"], df_p2["variação de atraso (jitter)_network_ms"], 
+    plt.plot(df_p3["segment"], df_p3["variação de atraso (jitter)_network_ms"], 
              color="#000000", linestyle=':', linewidth=1.2, label="Jitter Instantâneo (Por Segmento)", zorder=2)
 
-    plt.plot(df_p2["segment"], df_p2["variação de atraso (jitter)_ewma_ms"], 
+    plt.plot(df_p3["segment"], df_p3["variação de atraso (jitter)_ewma_ms"], 
              color='#4a4a4a', linestyle='-', linewidth=1.5, label="Jitter EWMA", zorder=3)
 
     plt.scatter(df_srv_a["segment"], df_srv_a["variação de atraso (jitter)_ewma_ms"], 
@@ -170,20 +229,20 @@ def plotar_comparacao(csv_baseline, csv_politica2):
     if segmento_failover is not None:
         plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2.5, label="Instante do Failover")
         
-        max_y_real = max(df_p2["variação de atraso (jitter)_network_ms"].max(), df_p2["variação de atraso (jitter)_ewma_ms"].max())
+        max_y_real = max(df_p3["variação de atraso (jitter)_network_ms"].max(), df_p3["variação de atraso (jitter)_ewma_ms"].max())
         posicao_y_texto = max_y_real * 0.85
         
         plt.text(segmento_failover / 2, posicao_y_texto, "SERVIDOR A\n(Porta 8080)", 
                  color='#b35806', fontsize=11, fontweight='bold', ha='center', va='center', alpha=0.85, zorder=5)
         
-        seg_max = df_p2["segment"].max()
+        seg_max = df_p3["segment"].max()
         plt.text(segmento_failover + (seg_max - segmento_failover) / 2, posicao_y_texto, "SERVIDOR B\n(Porta 8081)", 
                  color='#542788', fontsize=11, fontweight='bold', ha='center', va='center', alpha=0.85, zorder=5)
 
     plt.title("Jitter Instantâneo vs Jitter EWMA")
     plt.xlabel("Número do Segmento")
     plt.ylabel("Variação de Atraso / Jitter ($ms$)")
-    plt.xticks(df_p2["segment"])
+    plt.xticks(df_p3["segment"])
     plt.grid(True, linestyle=':', alpha=0.4, zorder=1)
     plt.legend(loc="upper left")
     

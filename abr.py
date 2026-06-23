@@ -191,10 +191,17 @@ class AdaptiveHybridABR:
 
         # BUFFER
         if buffer_segundos < 4:
-            multiplicador_buffer = 0.75
+            rep_min = self.representations_ordenadas[-1]
+            self.representacao_atual = rep_min
+            self.contador_subida = 0 
+            return (
+                rep_min.get("quality", ""),
+                rep_min.get("url_path", ""),
+                rep_min.get("bitrate_kbps", 0)
+            )
 
         elif buffer_segundos <= 10:
-            multiplicador_buffer = 0.90
+            multiplicador_buffer = 0.92
 
         else:
             multiplicador_buffer = 1.0
