@@ -16,8 +16,15 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
     # Garante que o diretório "docs" existe antes de salvar
     os.makedirs("docs", exist_ok=True)
 
-    # Inicializa a variável com escopo correto para ser usada por todos os gráficos
+    # ==========================================================
+    # DETECÇÃO PRÉVIA DO INSTANTE DE FAILOVER
+    # ==========================================================
     segmento_failover = None
+    if "failover_total" in df_p2.columns:
+        for i in range(1, len(df_p2)):
+            if df_p2.loc[i, "failover_total"] > df_p2.loc[i-1, "failover_total"]:
+                segmento_failover = df_p2.loc[i, "segment"]
+                break
 
     # ==========================================================
     # GRÁFICO 1: POLÍTICA 1 (RATE-BASED / BASELINE)
@@ -36,6 +43,12 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
     for i, row in df_base.iterrows():
         plt.annotate(row["quality"], (row["segment"], row["bitrate_kbps"]), 
                      textcoords="offset points", xytext=(0,-12), ha='center', fontsize=8, color='#d62728')
+
+    # Adiciona a linha vertical indicando o Failover na Política 1
+    if segmento_failover is not None:
+        plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label="Queda de Servidor (Failover)")
+        plt.annotate("Failover!", (segmento_failover, plt.ylim()[1] * 0.95), 
+                     textcoords="offset points", xytext=(5,0), ha='left', color='red', fontweight='bold')
 
     plt.title("Desempenho ABR - Política 1 (Baseline)")
     plt.xlabel("Número do Segmento")
@@ -67,25 +80,16 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
         plt.annotate(row["quality"], (row["segment"], row["bitrate_kbps"]), 
                      textcoords="offset points", xytext=(0,-12), ha='center', fontsize=8, color='#1f77b4')
 
+    # Traça a linha do Failover usando a variável previamente calculada
+    if segmento_failover is not None:
+        plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label="Queda de Servidor (Failover)")
+        plt.annotate("Failover!", (segmento_failover, plt.ylim()[1] * 0.95), 
+                     textcoords="offset points", xytext=(5,0), ha='left', color='red', fontweight='bold')
+
     plt.title("Desempenho ABR - Política 2 (Híbrida)")
     plt.xlabel("Número do Segmento")
     plt.ylabel("Taxa de Transferência (kbps)")
     plt.xticks(df_p2["segment"]) 
-
-    # Detecta e indica visualmente onde ocorreu o Failover (Apenas na P2)
-    teve_failover = False
-    if "failover_total" in df_p2.columns:
-        for i in range(1, len(df_p2)):
-            if df_p2.loc[i, "failover_total"] > df_p2.loc[i-1, "failover_total"]:
-                segmento_failover = df_p2.loc[i, "segment"]
-                
-                label_f = "Queda de Servidor (Failover)" if not teve_failover else ""
-                plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label=label_f)
-                
-                plt.annotate("Failover!", (segmento_failover, plt.ylim()[1] * 0.95), 
-                             textcoords="offset points", xytext=(5,0), ha='left', color='red', fontweight='bold')
-                teve_failover = True
-
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.legend(loc="upper left")
 
@@ -112,25 +116,16 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
         plt.annotate(row["quality"], (row["segment"], row["bitrate_kbps"]), 
                      textcoords="offset points", xytext=(0,-12), ha='center', fontsize=8, color='#1fb41f')
 
+    # Traça a linha do Failover na P3
+    if segmento_failover is not None:
+        plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label="Queda de Servidor (Failover)")
+        plt.annotate("Failover!", (segmento_failover, plt.ylim()[1] * 0.95), 
+                     textcoords="offset points", xytext=(5,0), ha='left', color='red', fontweight='bold')
+
     plt.title("Desempenho ABR - Política 3 (Híbrida - Adaptativa)")
     plt.xlabel("Número do Segmento")
     plt.ylabel("Taxa de Transferência (kbps)")
     plt.xticks(df_p3["segment"]) 
-
-    # Detecta e indica visualmente onde ocorreu o Failover (P3)
-    teve_failover = False
-    if "failover_total" in df_p3.columns:
-        for i in range(1, len(df_p3)):
-            if df_p3.loc[i, "failover_total"] > df_p3.loc[i-1, "failover_total"]:
-                segmento_failover = df_p3.loc[i, "segment"]
-                
-                label_f = "Queda de Servidor (Failover)" if not teve_failover else ""
-                plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label=label_f)
-                
-                plt.annotate("Failover!", (segmento_failover, plt.ylim()[1] * 0.95), 
-                             textcoords="offset points", xytext=(5,0), ha='left', color='red', fontweight='bold')
-                teve_failover = True
-
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.legend(loc="upper left")
 
@@ -173,7 +168,6 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
         for _, row in df_p2_rebuf.iterrows():
             plt.annotate(f"Stall! {row['stall_duration_s']:.1f}s", (row["segment"], row["buffer_level_s"]),
                          textcoords="offset points", xytext=(0, 10), ha='center', color='darkred', fontweight='bold', fontsize=9)
-            
 
     df_p3_rebuf = df_p3[df_p3["rebuffer_event"] == 1]
     if not df_p3_rebuf.empty:
@@ -190,10 +184,8 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
     plt.title("Evolução Dinâmica do Nível do Buffer")
     plt.xlabel("Número do Segmento")
     plt.ylabel("Nível do Buffer ($s$)")
-    plt.xticks(df_p2["segment"])
-    plt.ylim(0, max(max(df_base["buffer_level_s"]), max(df_p2["buffer_level_s"]), 30) + 5)
     plt.xticks(df_p3["segment"])
-    plt.ylim(0, max(max(df_base["buffer_level_s"]), max(df_p3["buffer_level_s"]), 30) + 5)
+    plt.ylim(0, max(max(df_base["buffer_level_s"]), max(df_p2["buffer_level_s"]), max(df_p3["buffer_level_s"]), 30) + 5)
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.legend(loc="upper left")
     plt.savefig("docs/grafico_buffer.png", dpi=300, bbox_inches="tight")
@@ -227,7 +219,7 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
                 color='#1f77b4', marker='s', s=65, label="Conexão: Servidor B (8081)", zorder=4)
 
     if segmento_failover is not None:
-        plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2.5, label="Instante do Failover")
+        plt.axvline(x=segmento_failover, color='red', linestyle='-.', linewidth=2, label="Instante do Failover")
         
         max_y_real = max(df_p3["variação de atraso (jitter)_network_ms"].max(), df_p3["variação de atraso (jitter)_ewma_ms"].max())
         posicao_y_texto = max_y_real * 0.85
@@ -251,4 +243,4 @@ def plotar_comparacao(csv_baseline, csv_politica2, csv_politica3):
     print("Gráfico do Jitter EWMA salvo com sucesso em 'docs/grafico_jitter.png'")
 
 if __name__ == "__main__":
-    plotar_comparacao("docs/dados_baseline.csv", "docs/dados_politica2.csv")
+    plotar_comparacao("docs/dados_baseline.csv", "docs/dados_politica2.csv", "docs/dados_politica3.csv")
